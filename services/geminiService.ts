@@ -37,20 +37,19 @@ export const sendMessageToAI = async (message: string, history: { role: string; 
   if (!client) return "配置错误：缺少 API Key。";
 
   try {
-    const chat = client.chats.create({
-      model: 'gemini-2.5-flash',
+    const response: GenerateContentResponse = await client.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: [
+        ...history.map(h => ({
+          role: h.role,
+          parts: h.parts
+        })),
+        { role: 'user', parts: [{ text: message }] }
+      ],
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
         temperature: 0.7,
-      },
-      history: history.map(h => ({
-        role: h.role,
-        parts: h.parts
-      }))
-    });
-
-    const response: GenerateContentResponse = await chat.sendMessage({
-      message: message
+      }
     });
 
     return response.text || "抱歉，我暂时无法回答这个问题，请联系人工客服。";
