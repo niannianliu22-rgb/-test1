@@ -1,36 +1,13 @@
-export interface User {
-  id: string;
-  name: string;
-  avatar: string;
-}
+export type Priority = 'high' | 'medium' | 'low';
+export type TaskStatus = 'todo' | 'in-progress' | 'done';
+export type NavView = 'today' | 'upcoming' | 'all';
 
-export interface Group {
-  id: string;
-  creator: User;
-  members: User[];
-  maxMembers: number;
-  expiresAt: number; // Timestamp
-  status: 'OPEN' | 'FULL' | 'EXPIRED';
-}
-
-export interface Course {
+export interface Task {
   id: string;
   title: string;
-  originalPrice: number;
-  groupPrice: number;
-  description: string;
-  features: string[];
-}
-
-export enum AppView {
-  HOME = 'HOME',
-  GROUP_DETAIL = 'GROUP_DETAIL',
-  PAYMENT = 'PAYMENT',
-  SUCCESS = 'SUCCESS'
-}
-
-export interface ChatMessage {
-  role: 'user' | 'model';
-  text: string;
-  isThinking?: boolean;
+  priority: Priority;
+  status: TaskStatus;
+  date: string;   // YYYY-MM-DD
+  time?: string;  // HH:MM
+  tag: string;
 }
