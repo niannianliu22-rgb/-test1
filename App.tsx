@@ -1,585 +1,630 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Users, Clock, CheckCircle, ChevronRight, MessageCircle, Send, X, ShieldCheck, Star, Sparkles, Loader2, GraduationCap } from 'lucide-react';
-import { User, Group, Course, AppView, ChatMessage } from './types';
-import { sendMessageToAI } from './services/geminiService';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Plus, Trash2, CheckCircle2, Circle, GripVertical, AlertCircle, Bell } from 'lucide-react';
+import { Task, Priority, NavView } from './types';
 
-// --- Mock Data ---
-const CURRENT_USER: User = {
-  id: 'u1',
-  name: '我',
-  avatar: 'https://picsum.photos/seed/me/100/100'
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const PRIORITY_COLOR: Record<Priority, string> = {
+  high: '#FF3B30',
+  medium: '#FF9500',
+  low: '#34C759',
 };
 
-const MOCK_COURSE: Course = {
-  id: 'c1',
-  title: '极致Essay 1v1 包过辅导试听课',
-  originalPrice: 1099,
-  groupPrice: 699,
-  description: '极致Essay 专业导师 1v1 深度诊断，定制专属提升方案。涵盖 Essay 润色、挂科申诉、课程辅导。',
-  features: [] 
+const PRIORITY_BG: Record<Priority, string> = {
+  high: '#FFF2F1',
+  medium: '#FFF8F0',
+  low: '#F0FFF4',
 };
 
-const INITIAL_GROUPS: Group[] = [
-  {
-    id: 'g1',
-    creator: { id: 'u2', name: 'Alex', avatar: 'https://picsum.photos/seed/alex/100/100' },
-    members: [
-      { id: 'u2', name: 'Alex', avatar: 'https://picsum.photos/seed/alex/100/100' }
-    ],
-    maxMembers: 3,
-    expiresAt: Date.now() + 3600000, // 1 hour
-    status: 'OPEN'
-  },
-  {
-    id: 'g2',
-    creator: { id: 'u3', name: 'Sarah', avatar: 'https://picsum.photos/seed/sarah/100/100' },
-    members: [
-      { id: 'u3', name: 'Sarah', avatar: 'https://picsum.photos/seed/sarah/100/100' },
-      { id: 'u4', name: 'Mike', avatar: 'https://picsum.photos/seed/mike/100/100' }
-    ],
-    maxMembers: 3,
-    expiresAt: Date.now() + 7200000,
-    status: 'OPEN'
-  }
+const PRIORITY_LABEL: Record<Priority, string> = {
+  high: '紧急',
+  medium: '重要',
+  low: '普通',
+};
+
+const TAG_COLORS: Record<string, string> = {
+  设计: '#5856D6',
+  会议: '#FF2D55',
+  文档: '#32ADE6',
+  开发: '#FF9500',
+  其他: '#8E8E93',
+};
+
+// ─── Seed Data ────────────────────────────────────────────────────────────────
+
+function dateOffset(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split('T')[0];
+}
+
+const INITIAL_TASKS: Task[] = [
+  { id: '1', title: '完成产品原型设计',      priority: 'high',   status: 'in-progress', date: dateOffset(0), time: '09:00', tag: '设计' },
+  { id: '2', title: '客户需求确认会议',       priority: 'high',   status: 'todo',        date: dateOffset(0), time: '11:00', tag: '会议' },
+  { id: '3', title: '撰写项目周报',           priority: 'medium', status: 'todo',        date: dateOffset(0), time: '14:00', tag: '文档' },
+  { id: '4', title: '代码 Review：用户模块',  priority: 'medium', status: 'done',        date: dateOffset(0), time: '09:30', tag: '开发' },
+  { id: '5', title: '回复设计反馈邮件',       priority: 'low',    status: 'todo',        date: dateOffset(0),               tag: '其他' },
+  { id: '6', title: '更新技术文档',           priority: 'low',    status: 'todo',        date: dateOffset(1), time: '10:00', tag: '文档' },
+  { id: '7', title: '部署测试环境',           priority: 'high',   status: 'todo',        date: dateOffset(1), time: '14:00', tag: '开发' },
+  { id: '8', title: 'Q2 OKR 复盘会议',       priority: 'high',   status: 'todo',        date: dateOffset(2), time: '15:00', tag: '会议' },
+  { id: '9', title: '整理设计素材库',         priority: 'low',    status: 'todo',        date: dateOffset(2),               tag: '设计' },
 ];
 
-// --- Utility Components ---
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'outline' | 'black' | 'green' }> = ({ 
-  children, variant = 'primary', className = '', ...props 
-}) => {
-  const base = "px-4 py-3.5 rounded-2xl font-bold tracking-wide transition-all duration-200 active:scale-95 flex items-center justify-center text-sm shadow-sm";
-  const variants = {
-    primary: "bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-indigo-500/25 hover:shadow-indigo-500/40 hover:from-violet-500 hover:to-indigo-500",
-    secondary: "bg-white text-slate-800 border border-slate-100 hover:bg-slate-50",
-    outline: "border-2 border-indigo-600 text-indigo-600 hover:bg-indigo-50",
-    black: "bg-slate-900 text-white shadow-slate-900/20 hover:bg-slate-800",
-    green: "bg-[#09BB07] text-white hover:bg-[#08a306] shadow-green-500/20"
-  };
-  
+function dateOffsetStr(days: number): string {
+  return dateOffset(days);
+}
+
+function formatDisplayDate(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00');
+  const today = dateOffset(0);
+  const tomorrow = dateOffset(1);
+  if (dateStr === today) return '今天';
+  if (dateStr === tomorrow) return '明天';
+  const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+  return `${d.getMonth() + 1}月${d.getDate()}日 周${weekdays[d.getDay()]}`;
+}
+
+type Urgency = 'overdue' | 'soon' | null;
+
+function getUrgency(task: Task): Urgency {
+  if (task.status === 'done') return null;
+  const today = dateOffset(0);
+  if (task.date < today) return 'overdue';
+  if (task.date === today && task.time) {
+    const [h, m] = task.time.split(':').map(Number);
+    const taskMs = new Date();
+    taskMs.setHours(h, m, 0, 0);
+    const diffMs = taskMs.getTime() - Date.now();
+    if (diffMs < 0) return 'overdue';
+    if (diffMs < 2 * 60 * 60 * 1000) return 'soon';
+  }
+  return null;
+}
+
+function groupByDate(tasks: Task[]): [string, Task[]][] {
+  const map: Record<string, Task[]> = {};
+  [...tasks].forEach(t => { (map[t.date] ??= []).push(t); });
+  return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+const TrafficLights: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const [hover, setHover] = useState(false);
   return (
-    <button className={`${base} ${variants[variant]} ${className}`} {...props}>
-      {children}
-    </button>
-  );
-};
-
-const Avatar: React.FC<{ src: string, alt: string, size?: string, className?: string }> = ({ src, alt, size = "w-10 h-10", className="" }) => (
-  <img src={src} alt={alt} className={`${size} rounded-full ring-2 ring-white shadow-sm object-cover bg-gray-200 ${className}`} />
-);
-
-// --- Feature Components ---
-
-const AIChatWidget: React.FC = () => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: 'model', text: '同学你好！我是极致Essay的智能顾问。关于试听课拼团、导师背景或辅导内容，随时问我哦！✨' }
-  ]);
-  const [isLoading, setIsLoading] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, isOpen]);
-
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
-    
-    const userMsg = input;
-    setInput('');
-    setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
-    setIsLoading(true);
-
-    try {
-      const history = messages.map(m => ({
-        role: m.role,
-        parts: [{ text: m.text }]
-      }));
-
-      const reply = await sendMessageToAI(userMsg, history);
-      setMessages(prev => [...prev, { role: 'model', text: reply }]);
-    } catch (e) {
-      setMessages(prev => [...prev, { role: 'model', text: '抱歉，网络开小差了，请稍后再试。' }]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <>
-      <button 
-        onClick={() => setIsOpen(true)}
-        className={`fixed bottom-24 right-5 w-14 h-14 bg-slate-900 rounded-full shadow-2xl shadow-indigo-500/30 flex items-center justify-center text-white z-40 transition-all hover:scale-105 active:scale-95 ${isOpen ? 'hidden' : 'flex'}`}
-      >
-        <span className="relative flex h-full w-full items-center justify-center">
-          <Sparkles size={24} className="text-yellow-400" />
-          <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-500 border-2 border-white"></span>
-          </span>
-        </span>
+    <div className="flex items-center gap-2" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <button onClick={onClose} className="w-3 h-3 rounded-full flex items-center justify-center hover:brightness-90 transition-all"
+        style={{ background: '#FF5F57', border: '0.5px solid #E0443E' }} title="关闭">
+        {hover && <span style={{ fontSize: 7, color: '#820005', fontWeight: 900, lineHeight: 1 }}>✕</span>}
       </button>
-
-      {isOpen && (
-        <div className="fixed inset-0 sm:inset-auto sm:bottom-24 sm:right-5 w-full sm:w-[400px] h-full sm:h-[600px] bg-white sm:rounded-3xl shadow-2xl z-50 flex flex-col border border-slate-100/50 animate-in slide-in-from-bottom-4 duration-300 overflow-hidden font-sans">
-          {/* Header */}
-          <div className="p-4 bg-slate-900 text-white flex justify-between items-center relative overflow-hidden">
-             <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500 rounded-full blur-3xl opacity-20 -mr-10 -mt-10 pointer-events-none"></div>
-            <div className="flex items-center gap-3 relative z-10">
-              <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-md border border-white/10">
-                <Sparkles size={20} className="text-yellow-400" />
-              </div>
-              <div>
-                <h3 className="font-bold text-base">智能顾问 AI</h3>
-                <p className="text-xs text-slate-300 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-green-400 rounded-full"></span> 在线</p>
-              </div>
-            </div>
-            <button onClick={() => setIsOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors relative z-10">
-              <X size={20} />
-            </button>
-          </div>
-
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-5 bg-slate-50 no-scrollbar" ref={scrollRef}>
-            {messages.map((msg, idx) => (
-              <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                {msg.role === 'model' && (
-                  <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center mr-2 mt-1 shadow-sm flex-shrink-0 text-white">
-                    <Sparkles size={14} />
-                  </div>
-                )}
-                <div className={`max-w-[80%] p-4 rounded-2xl text-[15px] leading-relaxed shadow-sm ${
-                  msg.role === 'user' 
-                    ? 'bg-slate-900 text-white rounded-tr-sm' 
-                    : 'bg-white text-slate-700 border border-slate-100 rounded-tl-sm'
-                }`}>
-                  {msg.text}
-                </div>
-              </div>
-            ))}
-            {isLoading && (
-               <div className="flex justify-start">
-                 <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center mr-2 shadow-sm flex-shrink-0 text-white">
-                   <Sparkles size={14} />
-                 </div>
-                 <div className="bg-white p-4 rounded-2xl rounded-tl-sm shadow-sm border border-slate-100 flex gap-1.5 items-center">
-                   <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce"></span>
-                   <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce delay-75"></span>
-                   <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce delay-150"></span>
-                 </div>
-               </div>
-            )}
-          </div>
-
-          {/* Input */}
-          <div className="p-4 bg-white border-t border-slate-100 flex gap-2 items-center">
-            <div className="flex-1 relative">
-              <input 
-                className="w-full bg-slate-50 rounded-full pl-5 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 border border-slate-200 transition-all"
-                placeholder="咨询课程详情..."
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              />
-            </div>
-            <button 
-              onClick={handleSend}
-              disabled={isLoading || !input.trim()}
-              className="w-11 h-11 bg-indigo-600 text-white rounded-full flex items-center justify-center hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-indigo-200 transition-all active:scale-95"
-            >
-              <Send size={18} className="ml-0.5" />
-            </button>
-          </div>
-        </div>
-      )}
-    </>
-  );
-};
-
-// --- View Components ---
-
-const HomeView: React.FC<{ 
-  groups: Group[], 
-  onJoin: (groupId: string) => void, 
-  onCreate: () => void 
-}> = ({ groups, onJoin, onCreate }) => {
-  return (
-    <div className="pb-32 bg-slate-50 min-h-screen font-sans">
-      {/* Hero Section */}
-      <div className="relative bg-[#0F172A] text-white pt-8 pb-12 px-6 rounded-b-[3rem] shadow-xl overflow-hidden">
-        {/* Abstract Background Shapes */}
-        <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600 rounded-full blur-[80px] opacity-40 -mr-16 -mt-16"></div>
-        <div className="absolute bottom-0 left-0 w-64 h-64 bg-violet-600 rounded-full blur-[80px] opacity-30 -ml-16 -mb-16"></div>
-        
-        <div className="relative z-10">
-          <div className="flex justify-between items-center mb-8">
-            <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
-              <span className="w-8 h-8 bg-gradient-to-tr from-indigo-500 to-violet-500 rounded-lg flex items-center justify-center">
-                <GraduationCap size={18} className="text-white" />
-              </span>
-              极致Essay
-            </h1>
-            <span className="bg-white/10 px-3 py-1 rounded-full text-xs font-medium backdrop-blur-md border border-white/5 text-indigo-100">
-              专注留学辅导
-            </span>
-          </div>
-          
-          <div className="mb-8">
-            <div className="inline-block px-3 py-1 bg-yellow-400/10 text-yellow-300 rounded-full text-xs font-bold mb-3 border border-yellow-400/20">
-              🔥 限时 3 人团
-            </div>
-            <h2 className="text-4xl font-extrabold mb-3 leading-tight">1v1 包过辅导<br/>试听课 <span className="text-transparent bg-clip-text bg-gradient-to-r from-yellow-200 to-amber-400">¥{MOCK_COURSE.groupPrice}</span></h2>
-            <p className="text-slate-400 text-sm max-w-xs leading-relaxed">拼课不限专业，开启你的试听之旅</p>
-          </div>
-
-          {/* Glass Card Price */}
-          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-5 flex items-center justify-between shadow-2xl relative overflow-hidden group">
-            <div className="absolute inset-0 bg-gradient-to-r from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-            <div>
-              <p className="text-slate-400 text-xs mb-1 line-through">原价 ¥{MOCK_COURSE.originalPrice}</p>
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-sm font-bold text-white">¥</span>
-                <span className="text-4xl font-extrabold text-white tracking-tight">{MOCK_COURSE.groupPrice}</span>
-                <span className="ml-2 text-[10px] bg-white px-2 py-0.5 rounded text-red-600 font-bold tracking-wider uppercase">立省 ¥400</span>
-              </div>
-            </div>
-            <div className="text-right">
-               <div className="text-[10px] text-slate-300 mb-1.5 uppercase tracking-wide">距结束</div>
-               <div className="flex gap-1.5 text-sm font-mono font-bold">
-                 <span className="bg-white/10 text-white px-1.5 py-1 rounded min-w-[24px] text-center backdrop-blur-sm border border-white/5">04</span>
-                 <span className="text-white/30 self-center">:</span>
-                 <span className="bg-white/10 text-white px-1.5 py-1 rounded min-w-[24px] text-center backdrop-blur-sm border border-white/5">23</span>
-                 <span className="text-white/30 self-center">:</span>
-                 <span className="bg-white/10 text-white px-1.5 py-1 rounded min-w-[24px] text-center backdrop-blur-sm border border-white/5">12</span>
-               </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Active Groups List - Plate portion enlarged */}
-      <div className="px-6 mt-8">
-        <div className="flex justify-between items-end mb-6">
-          <h3 className="font-extrabold text-2xl text-slate-900 flex items-center gap-3">
-            正在拼团
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
-            </span>
-          </h3>
-          <div className="flex flex-col items-end">
-             <span className="text-[10px] font-medium text-slate-400">128 人已参与</span>
-          </div>
-        </div>
-
-        <div className="space-y-5">
-          {groups.map(group => {
-            const missing = group.maxMembers - group.members.length;
-            return (
-              <div key={group.id} className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 flex items-center justify-between gap-4 group hover:shadow-xl hover:scale-[1.02] transition-all duration-300">
-                <div className="flex items-center gap-4 min-w-0 flex-1">
-                  <div className="flex -space-x-4 flex-shrink-0">
-                    {group.members.map(m => (
-                      <Avatar key={m.id} src={m.avatar} alt={m.name} size="w-12 h-12" className="ring-[3px] ring-white" />
-                    ))}
-                    <div className="w-12 h-12 rounded-full bg-slate-50 border-2 border-white border-dashed flex items-center justify-center text-slate-300 text-xs shadow-inner">
-                      ?
-                    </div>
-                  </div>
-                  <div className="min-w-0 flex flex-col justify-center">
-                    <div className="text-base font-extrabold text-slate-900 truncate">{group.creator.name} 的团</div>
-                    <div className="text-sm text-slate-500 flex items-center gap-2 mt-1">
-                      <span className="whitespace-nowrap font-medium">还差 <span className="text-red-500 font-black text-base">{missing}</span> 人</span>
-                    </div>
-                  </div>
-                </div>
-                <Button 
-                  variant="black" 
-                  className="!px-6 !py-3 !text-sm !rounded-2xl flex-shrink-0 whitespace-nowrap !font-black shadow-lg shadow-slate-200 hover:shadow-indigo-100" 
-                  onClick={() => onJoin(group.id)}
-                >
-                  去拼单
-                </Button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Sticky Bottom Bar */}
-      <div className="fixed bottom-0 left-0 w-full bg-white/90 backdrop-blur-lg border-t border-slate-200/60 p-4 pb-8 safe-area-pb z-30 flex items-center gap-4 shadow-[0_-5px_30px_rgba(0,0,0,0.03)]">
-        <div className="flex-1 pl-2">
-          <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider mb-0.5">拼团优惠价</p>
-          <div className="text-2xl font-extrabold text-slate-900 leading-none">
-            ¥{MOCK_COURSE.groupPrice} 
-            <span className="text-xs font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded ml-2 align-middle">-40%</span>
-          </div>
-        </div>
-        <Button onClick={onCreate} className="flex-1 shadow-indigo-200 bg-slate-900 hover:bg-slate-800 text-white !py-3 !text-sm !rounded-xl">
-          发起拼团
-        </Button>
-      </div>
+      <button className="w-3 h-3 rounded-full flex items-center justify-center hover:brightness-90 transition-all"
+        style={{ background: '#FEBC2E', border: '0.5px solid #D89D1C' }} title="最小化">
+        {hover && <span style={{ fontSize: 7, color: '#7A5200', fontWeight: 900, lineHeight: 1 }}>−</span>}
+      </button>
+      <button className="w-3 h-3 rounded-full flex items-center justify-center hover:brightness-90 transition-all"
+        style={{ background: '#28C840', border: '0.5px solid #1BA22E' }} title="全屏">
+        {hover && <span style={{ fontSize: 7, color: '#006600', fontWeight: 900, lineHeight: 1 }}>+</span>}
+      </button>
     </div>
   );
 };
 
-const GroupDetailView: React.FC<{ 
-  group: Group, 
-  onBack: () => void,
-  onJoinConfirm: (groupId: string) => void
-}> = ({ group, onBack, onJoinConfirm }) => {
-  const missing = group.maxMembers - group.members.length;
-  const isFull = missing === 0;
+interface TaskRowProps {
+  task: Task;
+  showTime?: boolean;
+  isDragging?: boolean;
+  isDragOver?: boolean;
+  onToggle: (id: string) => void;
+  onDelete: (id: string) => void;
+  onDragStart: (id: string) => void;
+  onDragOver: (id: string) => void;
+  onDrop: (id: string) => void;
+  onDragEnd: () => void;
+}
+
+const TaskRow: React.FC<TaskRowProps> = ({
+  task, showTime = true,
+  isDragging = false, isDragOver = false,
+  onToggle, onDelete, onDragStart, onDragOver, onDrop, onDragEnd,
+}) => {
+  const [hovered, setHovered] = useState(false);
+  const done = task.status === 'done';
+  const urgency = getUrgency(task);
+
+  const urgencyStyle = urgency === 'overdue'
+    ? { border: '1px solid #FECACA', background: 'rgba(254,242,242,0.6)' }
+    : urgency === 'soon'
+    ? { border: '1px solid #FED7AA', background: 'rgba(255,247,237,0.6)' }
+    : {};
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      <div className="bg-white/80 backdrop-blur-md px-4 py-3 flex items-center border-b border-slate-100 sticky top-0 z-20">
-        <button onClick={onBack} className="p-2 hover:bg-slate-50 rounded-full transition-colors"><ChevronRight className="rotate-180 text-slate-600" size={22} /></button>
-        <h1 className="font-bold text-base mx-auto pr-10 text-slate-800">拼团详情</h1>
+    <div
+      draggable={!done}
+      onDragStart={() => !done && onDragStart(task.id)}
+      onDragOver={e => { e.preventDefault(); !done && onDragOver(task.id); }}
+      onDrop={() => onDrop(task.id)}
+      onDragEnd={onDragEnd}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="flex items-start gap-0 transition-all duration-150"
+      style={{ opacity: isDragging ? 0.35 : 1 }}
+    >
+      {/* Drop indicator line */}
+      {isDragOver && (
+        <div className="absolute left-4 right-4 h-0.5 rounded-full z-20 pointer-events-none"
+          style={{ background: '#3B82F6', boxShadow: '0 0 6px rgba(59,130,246,0.6)' }} />
+      )}
+
+      {/* Time column */}
+      {showTime && (
+        <div className="w-14 flex-shrink-0 pt-3.5 pr-2 text-right">
+          {task.time && <span className="text-[11px] text-gray-400 font-medium tabular-nums">{task.time}</span>}
+        </div>
+      )}
+
+      {/* Dot + line */}
+      <div className="flex flex-col items-center flex-shrink-0 mr-3">
+        <div className="w-2.5 h-2.5 rounded-full mt-3.5 flex-shrink-0 z-10 ring-2 ring-white"
+          style={{ background: done ? '#D1D5DB' : urgency === 'overdue' ? '#FF3B30' : urgency === 'soon' ? '#FF9500' : PRIORITY_COLOR[task.priority] }} />
+        <div className="w-px flex-1 mt-1" style={{ background: '#E5E7EB' }} />
       </div>
 
-      <div className="p-6 flex-1 overflow-y-auto">
-        {/* Product Card */}
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 mb-8 flex gap-5">
-           <div className="w-24 h-24 bg-gradient-to-br from-indigo-50 to-violet-50 rounded-2xl flex items-center justify-center text-indigo-600 font-bold text-xs p-2 text-center border border-indigo-100 shadow-inner">
-             <div className="space-y-1">
-               <span className="block text-2xl">⚡️</span>
-               <span className="block font-extrabold text-lg">1v1</span>
-               <span className="block text-[10px] text-indigo-400">试听</span>
-             </div>
-           </div>
-           <div className="flex-1 py-1">
-             <h3 className="font-bold text-slate-900 text-xl leading-snug">{MOCK_COURSE.title}</h3>
-             <div className="mt-3 flex items-baseline gap-2.5">
-               <span className="text-slate-900 font-extrabold text-2xl">¥{MOCK_COURSE.groupPrice}</span>
-               <span className="text-slate-400 text-sm line-through font-medium">¥{MOCK_COURSE.originalPrice}</span>
-             </div>
-             <div className="inline-flex items-center gap-1 mt-2 px-2 py-0.5 bg-orange-50 text-orange-600 text-[10px] font-bold rounded uppercase tracking-wide">
-               <Users size={10} /> 3人团
-             </div>
-           </div>
-        </div>
+      {/* Card */}
+      <div className="flex-1 pb-3 relative">
+        <div className="flex items-start gap-1.5 px-3 py-2.5 rounded-xl transition-all"
+          style={hovered && !done ? { ...urgencyStyle, background: urgency ? undefined : 'rgba(0,0,0,0.03)' } : urgencyStyle}>
 
-        {/* Status Area */}
-        <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 text-center mb-8 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"></div>
-          
-          <div className="flex items-center justify-center gap-4 mb-8">
-             {Array.from({ length: 3 }).map((_, i) => {
-               const member = group.members[i];
-               return (
-                 <div key={i} className="relative group">
-                   {member ? (
-                     <div className="relative">
-                       <Avatar src={member.avatar} alt={member.name} size="w-16 h-16" className="ring-4 ring-slate-50" />
-                       {i === 0 && <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-yellow-400 text-[9px] font-black text-slate-900 px-2 py-0.5 rounded-full border-2 border-white shadow-sm z-10">团长</span>}
-                     </div>
-                   ) : (
-                     <div className="w-16 h-16 rounded-full border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center text-slate-300 group-hover:border-indigo-300 group-hover:text-indigo-300 transition-colors">
-                       <Users size={24} />
-                     </div>
-                   )}
-                 </div>
-               );
-             })}
-          </div>
-
-          {isFull ? (
-             <div className="animate-in zoom-in duration-300">
-                <h2 className="text-2xl font-bold text-slate-900 mb-2 flex items-center justify-center gap-2"><CheckCircle className="text-green-500" /> 拼团成功</h2>
-                <p className="text-slate-500 text-sm font-medium">拼团报名成功，正在跳转...</p>
-             </div>
-          ) : (
-            <div>
-              <h2 className="text-xl font-bold text-slate-900 mb-3">还差 <span className="text-red-500 mx-1">{missing}</span> 人，人满开团</h2>
+          {/* Drag handle */}
+          {!done && (
+            <div className={`flex-shrink-0 mt-0.5 cursor-grab transition-opacity ${hovered ? 'opacity-30' : 'opacity-0'}`}>
+              <GripVertical size={14} className="text-gray-400" />
             </div>
           )}
-        </div>
 
-        {/* Instructions */}
-        <div className="space-y-4">
-          <div className="flex justify-between text-sm font-bold text-slate-900 px-2">
-            <span>拼团玩法</span>
-            <span className="text-indigo-600 text-xs font-semibold flex items-center">查看规则 <ChevronRight size={14} /></span>
+          {/* Toggle */}
+          <button onClick={() => onToggle(task.id)} className="mt-0.5 flex-shrink-0 hover:scale-110 transition-transform">
+            {done
+              ? <CheckCircle2 size={17} style={{ color: '#34C759' }} fill="#34C759" />
+              : <Circle size={17} style={{ color: PRIORITY_COLOR[task.priority] }} className="opacity-60" />
+            }
+          </button>
+
+          {/* Content */}
+          <div className="flex-1 min-w-0">
+            <p className={`text-[13px] font-medium leading-snug ${done ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+              {task.title}
+            </p>
+            <div className="flex items-center flex-wrap gap-1.5 mt-1.5">
+              {/* Urgency badge */}
+              {urgency === 'overdue' && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-md font-bold text-red-600 bg-red-100 flex items-center gap-0.5">
+                  <AlertCircle size={9} />已超时
+                </span>
+              )}
+              {urgency === 'soon' && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-md font-bold text-orange-600 bg-orange-100 flex items-center gap-0.5">
+                  <Bell size={9} />即将到期
+                </span>
+              )}
+              {task.tag && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold"
+                  style={{ color: TAG_COLORS[task.tag] ?? '#555', background: (TAG_COLORS[task.tag] ?? '#555') + '1A' }}>
+                  {task.tag}
+                </span>
+              )}
+              <span className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold"
+                style={{ color: PRIORITY_COLOR[task.priority], background: PRIORITY_BG[task.priority] }}>
+                {PRIORITY_LABEL[task.priority]}
+              </span>
+              {task.status === 'in-progress' && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold text-blue-500 bg-blue-50">进行中</span>
+              )}
+            </div>
           </div>
-          <div className="bg-white p-5 rounded-2xl border border-slate-100 flex justify-between items-center text-xs text-slate-500 text-center shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
-            {[
-              { num: 1, text: '开团/参团' },
-              { num: 2, text: '邀请好友' },
-              { num: 3, text: '人满开团' },
-              { num: 4, text: '联系专属顾问' }
-            ].map((step, idx) => (
-              <React.Fragment key={idx}>
-                <div className="flex flex-col items-center gap-2">
-                  <span className="w-6 h-6 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-[10px] border border-indigo-100">{step.num}</span>
-                  <span className="scale-90 font-medium">{step.text}</span>
-                </div>
-                {idx < 3 && <div className="w-8 h-[1px] bg-slate-100 -mt-4"></div>}
-              </React.Fragment>
-            ))}
-          </div>
+
+          {/* Delete */}
+          {hovered && !done && (
+            <button onClick={() => onDelete(task.id)} className="flex-shrink-0 text-gray-300 hover:text-red-400 transition-colors mt-0.5">
+              <Trash2 size={13} />
+            </button>
+          )}
         </div>
       </div>
-
-      {!isFull && (
-        <div className="p-4 pb-8 bg-white border-t border-slate-100 sticky bottom-0 shadow-[0_-5px_30px_rgba(0,0,0,0.03)]">
-          <Button onClick={() => onJoinConfirm(group.id)} className="w-full !text-base !py-4 shadow-xl shadow-indigo-200">
-            参与拼团 <span className="ml-1 opacity-80 font-normal">|</span> ¥{MOCK_COURSE.groupPrice}
-          </Button>
-        </div>
-      )}
     </div>
   );
 };
 
-const SuccessView: React.FC = () => {
-  const [copied, setCopied] = useState(false);
-  const [formationTime, setFormationTime] = useState('');
-  const orderId = useRef("ORD-" + Math.floor(Math.random() * 1000000)).current;
-  const consultantId = "xy5312630";
+const AddTaskForm: React.FC<{
+  defaultDate: string;
+  onAdd: (task: Omit<Task, 'id'>) => void;
+  onCancel: () => void;
+}> = ({ defaultDate, onAdd, onCancel }) => {
+  const [title, setTitle] = useState('');
+  const [priority, setPriority] = useState<Priority>('medium');
+  const [time, setTime] = useState('');
+  const [tag, setTag] = useState('其他');
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const now = new Date();
-    const formatted = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-    setFormationTime(formatted);
-  }, []);
+  useEffect(() => { inputRef.current?.focus(); }, []);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(consultantId);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    onAdd({ title: title.trim(), priority, status: 'todo', date: defaultDate, time: time || undefined, tag });
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center pt-16 px-6 text-center font-sans">
-      <div className="relative mb-8">
-        <div className="absolute inset-0 bg-green-400 blur-2xl opacity-20 rounded-full"></div>
-        <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center shadow-xl relative z-10 animate-in zoom-in duration-500">
-          <CheckCircle size={48} className="text-green-500" fill="#ecfdf5" />
+    <form onSubmit={handleSubmit} className="mx-4 mb-4 p-3.5 rounded-xl border"
+      style={{ borderColor: '#BFDBFE', background: 'rgba(239,246,255,0.7)' }}>
+      <input ref={inputRef} value={title} onChange={e => setTitle(e.target.value)}
+        placeholder="新任务名称..."
+        className="w-full text-[13px] font-medium text-gray-800 bg-transparent outline-none placeholder-gray-400 mb-3"
+        onKeyDown={e => e.key === 'Escape' && onCancel()} />
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-1.5">
+          {(['high', 'medium', 'low'] as Priority[]).map(p => (
+            <button key={p} type="button" onClick={() => setPriority(p)} title={PRIORITY_LABEL[p]}
+              className="w-3.5 h-3.5 rounded-full border-2 transition-all"
+              style={{ background: PRIORITY_COLOR[p], borderColor: PRIORITY_COLOR[p],
+                transform: priority === p ? 'scale(1.3)' : 'scale(1)', opacity: priority === p ? 1 : 0.35 }} />
+          ))}
         </div>
+        <select value={tag} onChange={e => setTag(e.target.value)}
+          className="text-[11px] text-gray-500 bg-transparent outline-none border-none cursor-pointer">
+          {Object.keys(TAG_COLORS).map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <input type="time" value={time} onChange={e => setTime(e.target.value)}
+          className="text-[11px] text-gray-500 bg-transparent outline-none" />
+        <div className="flex-1" />
+        <button type="button" onClick={onCancel} className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors">取消</button>
+        <button type="submit" disabled={!title.trim()}
+          className="text-[11px] px-2.5 py-1 bg-blue-500 text-white rounded-md disabled:opacity-40 hover:bg-blue-600 transition-colors font-semibold">
+          添加
+        </button>
       </div>
-      
-      <h1 className="text-2xl font-extrabold text-slate-900 mb-2">拼团成功！</h1>
-      <p className="text-slate-500 mb-10 text-sm">您的试听课名额已锁定，请尽快联系顾问。</p>
+    </form>
+  );
+};
 
-      <div className="w-full bg-white rounded-3xl p-6 border border-slate-100 shadow-xl shadow-slate-200/50 mb-8 overflow-hidden relative">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-violet-500"></div>
-        
-        <div className="flex justify-between items-center mb-4 text-sm">
-          <span className="text-slate-500 font-medium">拼团编号</span>
-          <span className="font-mono font-bold text-slate-900">{orderId}</span>
-        </div>
-        <div className="flex justify-between items-center mb-4 text-sm">
-           <span className="text-slate-500 font-medium">拼团价</span>
-           <span className="font-extrabold text-slate-900">¥{MOCK_COURSE.groupPrice}</span>
-        </div>
-        <div className="flex justify-between items-center mb-6 text-sm border-t border-slate-50 pt-4">
-           <span className="text-slate-500 font-medium">拼团时间</span>
-           <span className="font-medium text-slate-900">{formationTime}</span>
-        </div>
-        
-        <div className="bg-indigo-50/50 rounded-2xl p-4 border border-indigo-100">
-          <p className="text-xs text-indigo-400 font-bold uppercase tracking-wider mb-2 text-left">您的专属顾问</p>
-          <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-indigo-100 shadow-sm">
-            <span className="font-bold text-slate-800 text-lg select-all">{consultantId}</span>
-            <button 
-              onClick={handleCopy}
-              className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all ${copied ? 'bg-green-500 text-white' : 'bg-slate-900 text-white hover:bg-slate-700'}`}
-            >
-              {copied ? '已复制' : '复制微信'}
-            </button>
-          </div>
-          <p className="text-[10px] text-indigo-400 mt-2 flex items-center gap-1.5 text-left font-medium">
-            <Star size={10} fill="currentColor" /> 添加时请备注“试听课”
-          </p>
-        </div>
+// ─── Urgency Banner ───────────────────────────────────────────────────────────
+
+const UrgencyBanner: React.FC<{ tasks: Task[] }> = ({ tasks }) => {
+  const overdue = tasks.filter(t => getUrgency(t) === 'overdue');
+  const soon    = tasks.filter(t => getUrgency(t) === 'soon');
+  if (overdue.length === 0 && soon.length === 0) return null;
+
+  return (
+    <div className="mx-4 mb-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2.5"
+      style={{ background: overdue.length > 0 ? 'rgba(254,242,242,0.85)' : 'rgba(255,247,237,0.85)',
+        border: `1px solid ${overdue.length > 0 ? '#FECACA' : '#FED7AA'}` }}>
+      <AlertCircle size={15} className="flex-shrink-0 mt-0.5"
+        style={{ color: overdue.length > 0 ? '#EF4444' : '#F97316' }} />
+      <div className="text-[12px] leading-relaxed" style={{ color: overdue.length > 0 ? '#B91C1C' : '#C2410C' }}>
+        {overdue.length > 0 && (
+          <span className="font-semibold">{overdue.length} 项任务已超时</span>
+        )}
+        {overdue.length > 0 && soon.length > 0 && <span className="opacity-50 mx-1">·</span>}
+        {soon.length > 0 && (
+          <span>{soon.length} 项将在 2 小时内到期</span>
+        )}
       </div>
-
-      <Button variant="black" className="w-full" onClick={() => window.location.reload()}>
-        返回首页
-      </Button>
     </div>
   );
 };
 
-// --- Main App Logic ---
+// ─── Main App ─────────────────────────────────────────────────────────────────
 
 const App: React.FC = () => {
-  const [view, setView] = useState<AppView>(AppView.HOME);
-  const [groups, setGroups] = useState<Group[]>(INITIAL_GROUPS);
-  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const [tasks, setTasks]           = useState<Task[]>(INITIAL_TASKS);
+  const [activeView, setActiveView] = useState<NavView>('today');
+  const [pos, setPos]               = useState({ x: 0, y: 0 });
+  const [isDraggingWin, setIsDraggingWin] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [visible, setVisible]       = useState(true);
 
-  const handleCreateGroup = () => {
-    const newGroup: Group = {
-      id: `g${Date.now()}`,
-      creator: CURRENT_USER,
-      members: [CURRENT_USER],
-      maxMembers: 3,
-      expiresAt: Date.now() + 86400000,
-      status: 'OPEN'
-    };
-    setGroups(prev => [newGroup, ...prev]);
-    setActiveGroupId(newGroup.id);
-    setView(AppView.GROUP_DETAIL);
+  // drag-to-sort state
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
+
+  const windowRef = useRef<HTMLDivElement>(null);
+  const WIN_W = 720, WIN_H = 560;
+
+  useEffect(() => {
+    setPos({ x: Math.max(0, (window.innerWidth - WIN_W) / 2), y: Math.max(0, (window.innerHeight - WIN_H) / 2) });
+  }, []);
+
+  const handleTitleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!windowRef.current) return;
+    const rect = windowRef.current.getBoundingClientRect();
+    setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    setIsDraggingWin(true);
+    e.preventDefault();
+  }, []);
+
+  useEffect(() => {
+    if (!isDraggingWin) return;
+    const onMove = (e: MouseEvent) => setPos({
+      x: Math.max(0, Math.min(window.innerWidth - WIN_W, e.clientX - dragOffset.x)),
+      y: Math.max(0, Math.min(window.innerHeight - WIN_H, e.clientY - dragOffset.y)),
+    });
+    const onUp = () => setIsDraggingWin(false);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, [isDraggingWin, dragOffset]);
+
+  const toggleTask = (id: string) =>
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, status: t.status === 'done' ? 'todo' : 'done' } : t));
+
+  const deleteTask = (id: string) => setTasks(prev => prev.filter(t => t.id !== id));
+
+  const addTask = (data: Omit<Task, 'id'>) => {
+    setTasks(prev => [...prev, { ...data, id: Date.now().toString() }]);
+    setShowAddForm(false);
   };
 
-  const handleJoinClick = (groupId: string) => {
-    setActiveGroupId(groupId);
-    setView(AppView.GROUP_DETAIL);
+  // Drag-to-sort handlers
+  const handleDragStart = (id: string) => setDraggedTaskId(id);
+  const handleDragOver  = (id: string) => { if (id !== draggedTaskId) setDragOverTaskId(id); };
+  const handleDrop      = (targetId: string) => {
+    if (!draggedTaskId || draggedTaskId === targetId) { handleDragEnd(); return; }
+    setTasks(prev => {
+      const arr = [...prev];
+      const from = arr.findIndex(t => t.id === draggedTaskId);
+      const to   = arr.findIndex(t => t.id === targetId);
+      if (from === -1 || to === -1) return prev;
+      const [item] = arr.splice(from, 1);
+      arr.splice(to, 0, item);
+      return arr;
+    });
+    handleDragEnd();
   };
+  const handleDragEnd = () => { setDraggedTaskId(null); setDragOverTaskId(null); };
 
-  const handleConfirmJoin = (groupId: string) => {
-    // Optimistic Update
-    setGroups(prev => prev.map(g => {
-      if (g.id === groupId) {
-        // Prevent duplicate join for demo
-        if (g.members.find(m => m.id === CURRENT_USER.id)) return g;
-        
-        const updatedMembers = [...g.members, CURRENT_USER];
-        const isNowFull = updatedMembers.length >= g.maxMembers;
-        return {
-          ...g,
-          members: updatedMembers,
-          status: isNowFull ? 'FULL' : 'OPEN'
-        };
-      }
-      return g;
-    }));
-    
-    // Redirect directly to Success instead of Payment
-    setTimeout(() => setView(AppView.SUCCESS), 600);
-  };
+  const today = dateOffset(0);
 
-  // Find the active group object safely
-  const currentGroup = groups.find(g => g.id === activeGroupId);
+  const filteredTasks = (() => {
+    switch (activeView) {
+      case 'today':    return tasks.filter(t => t.date === today);
+      case 'upcoming': return tasks.filter(t => t.date > today);
+      default:         return tasks;
+    }
+  })();
+
+  const todayPending   = tasks.filter(t => t.date === today && t.status !== 'done').length;
+  const allPending     = tasks.filter(t => t.status !== 'done').length;
+  const doneCount      = tasks.filter(t => t.status === 'done').length;
+  const donePct        = tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0;
+  const urgentCount    = tasks.filter(t => getUrgency(t) !== null).length;
+
+  const navItems: { id: NavView; label: string; icon: string; count: number }[] = [
+    { id: 'today',    label: '今天',    icon: '☀️', count: todayPending },
+    { id: 'upcoming', label: '即将到来', icon: '📅', count: tasks.filter(t => t.date > today && t.status !== 'done').length },
+    { id: 'all',      label: '全部任务', icon: '📋', count: allPending },
+  ];
+
+  const taskRowProps = { onToggle: toggleTask, onDelete: deleteTask,
+    onDragStart: handleDragStart, onDragOver: handleDragOver, onDrop: handleDrop, onDragEnd: handleDragEnd };
+
+  if (!visible) {
+    return (
+      <div className="fixed inset-0 flex items-end justify-center pb-12"
+        style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #0f3460 100%)' }}>
+        <button onClick={() => setVisible(true)}
+          className="px-5 py-2.5 rounded-full text-sm font-semibold text-white border border-white/20 hover:bg-white/10 transition-all"
+          style={{ background: 'rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)' }}>
+          打开任务窗口
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-md mx-auto bg-slate-50 min-h-screen shadow-2xl relative overflow-hidden font-sans border-x border-slate-200">
-      {view === AppView.HOME && (
-        <HomeView 
-          groups={groups.filter(g => g.status === 'OPEN')} 
-          onJoin={handleJoinClick} 
-          onCreate={handleCreateGroup} 
-        />
-      )}
+    <div className="fixed inset-0 overflow-hidden"
+      style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #0f3460 100%)' }}>
+      {/* Ambient blobs */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute rounded-full blur-3xl opacity-30"
+          style={{ width: 500, height: 500, top: '10%', left: '5%', background: 'radial-gradient(circle, #6366f1, transparent)' }} />
+        <div className="absolute rounded-full blur-3xl opacity-20"
+          style={{ width: 400, height: 400, bottom: '10%', right: '8%', background: 'radial-gradient(circle, #a855f7, transparent)' }} />
+        <div className="absolute rounded-full blur-3xl opacity-15"
+          style={{ width: 300, height: 300, top: '50%', right: '30%', background: 'radial-gradient(circle, #3b82f6, transparent)' }} />
+      </div>
 
-      {view === AppView.GROUP_DETAIL && currentGroup && (
-        <GroupDetailView 
-          group={currentGroup} 
-          onBack={() => setView(AppView.HOME)} 
-          onJoinConfirm={handleConfirmJoin} 
-        />
-      )}
+      {/* ── Floating Window ── */}
+      <div ref={windowRef}
+        className={`absolute rounded-2xl overflow-hidden flex flex-col ${isDraggingWin ? 'cursor-grabbing' : ''}`}
+        style={{
+          left: pos.x, top: pos.y, width: WIN_W, height: WIN_H,
+          background: 'rgba(255,255,255,0.82)',
+          backdropFilter: 'blur(48px) saturate(1.9)',
+          WebkitBackdropFilter: 'blur(48px) saturate(1.9)',
+          border: '1px solid rgba(255,255,255,0.55)',
+          boxShadow: '0 40px 80px rgba(0,0,0,0.45), 0 0 0 0.5px rgba(0,0,0,0.12)',
+          userSelect: 'none',
+        }}>
 
-      {view === AppView.SUCCESS && (
-        <SuccessView />
-      )}
+        {/* Title Bar */}
+        <div className="flex items-center px-4 flex-shrink-0"
+          style={{ height: 44, background: 'rgba(255,255,255,0.5)', borderBottom: '1px solid rgba(0,0,0,0.06)', cursor: 'grab' }}
+          onMouseDown={handleTitleMouseDown}>
+          <TrafficLights onClose={() => setVisible(false)} />
+          <div className="flex-1 flex items-center justify-center gap-2 pointer-events-none">
+            <span className="text-[13px] font-semibold text-gray-600 tracking-tight">任务时间线</span>
+            {urgentCount > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold text-red-600 bg-red-100 flex items-center gap-0.5">
+                <AlertCircle size={9} />{urgentCount}
+              </span>
+            )}
+          </div>
+          <div style={{ width: 52 }} />
+        </div>
 
-      {/* AI Chat Bot Global Widget */}
-      <AIChatWidget />
+        {/* Body */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Sidebar */}
+          <div className="flex flex-col py-3 flex-shrink-0"
+            style={{ width: 192, background: 'rgba(245,245,250,0.75)', borderRight: '1px solid rgba(0,0,0,0.06)' }}>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-5 mb-1.5">视图</p>
+
+            {navItems.map(item => (
+              <button key={item.id} onClick={() => setActiveView(item.id)}
+                className={`flex items-center gap-2 mx-2 px-3 py-2 rounded-xl text-left transition-all text-[13px] font-medium ${
+                  activeView === item.id ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:bg-white/60 hover:text-gray-700'
+                }`}>
+                <span className="text-base leading-none">{item.icon}</span>
+                <span className="flex-1">{item.label}</span>
+                {item.count > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold min-w-[18px] text-center"
+                    style={activeView === item.id ? { background: '#3B82F6', color: '#fff' } : { background: '#E5E7EB', color: '#6B7280' }}>
+                    {item.count}
+                  </span>
+                )}
+              </button>
+            ))}
+
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-5 mt-4 mb-1.5">标签</p>
+            {Object.entries(TAG_COLORS).map(([tag, color]) => (
+              <button key={tag}
+                className="flex items-center gap-2 mx-2 px-3 py-1.5 rounded-xl text-[12px] text-gray-500 hover:bg-white/60 hover:text-gray-700 transition-all">
+                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
+                {tag}
+              </button>
+            ))}
+
+            <div className="flex-1" />
+
+            {/* Progress Card */}
+            <div className="mx-3 p-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.6)' }}>
+              <div className="flex items-baseline gap-1 mb-1">
+                <span className="text-xl font-bold text-gray-800">{doneCount}</span>
+                <span className="text-xs text-gray-400">/ {tasks.length} 已完成</span>
+              </div>
+              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: '#E5E7EB' }}>
+                <div className="h-full rounded-full transition-all duration-700"
+                  style={{ width: `${donePct}%`, background: 'linear-gradient(90deg, #34C759, #30D158)' }} />
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">{donePct}% 完成率</p>
+            </div>
+          </div>
+
+          {/* Main Panel */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Panel Header */}
+            <div className="flex items-center justify-between px-5 py-3 flex-shrink-0"
+              style={{ borderBottom: '1px solid rgba(0,0,0,0.06)', background: 'rgba(255,255,255,0.4)' }}>
+              <div>
+                <h2 className="text-[15px] font-bold text-gray-800">
+                  {activeView === 'today' ? '今天' : activeView === 'upcoming' ? '即将到来' : '全部任务'}
+                </h2>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  {activeView === 'today'
+                    ? new Date().toLocaleDateString('zh-CN', { weekday: 'long', month: 'long', day: 'numeric' })
+                    : `${filteredTasks.filter(t => t.status !== 'done').length} 项待完成`}
+                </p>
+              </div>
+              <button onClick={() => setShowAddForm(v => !v)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white transition-all active:scale-95"
+                style={{ background: '#3B82F6', boxShadow: '0 2px 8px rgba(59,130,246,0.35)' }}>
+                <Plus size={13} strokeWidth={2.5} />添加任务
+              </button>
+            </div>
+
+            {/* Task List */}
+            <div className="flex-1 overflow-y-auto py-3 no-scrollbar">
+              {showAddForm && (
+                <AddTaskForm defaultDate={today} onAdd={addTask} onCancel={() => setShowAddForm(false)} />
+              )}
+
+              {activeView === 'today' ? (
+                <div className="px-4">
+                  {/* Urgency banner */}
+                  <UrgencyBanner tasks={filteredTasks} />
+
+                  {filteredTasks.length === 0 && !showAddForm ? (
+                    <div className="flex flex-col items-center justify-center py-16 gap-3">
+                      <span className="text-5xl">🎉</span>
+                      <p className="text-[14px] font-semibold text-gray-600">今日任务全部完成！</p>
+                      <p className="text-[12px] text-gray-400">享受美好时光吧</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Pending — draggable */}
+                      {filteredTasks.filter(t => t.status !== 'done')
+                        .map(task => (
+                          <div key={task.id} className="relative">
+                            {dragOverTaskId === task.id && draggedTaskId !== task.id && (
+                              <div className="h-0.5 rounded-full mx-2 mb-1"
+                                style={{ background: '#3B82F6', boxShadow: '0 0 6px rgba(59,130,246,0.6)' }} />
+                            )}
+                            <TaskRow task={task} showTime
+                              isDragging={draggedTaskId === task.id}
+                              isDragOver={false}
+                              {...taskRowProps} />
+                          </div>
+                        ))
+                      }
+
+                      {/* Divider */}
+                      {filteredTasks.some(t => t.status === 'done') && filteredTasks.some(t => t.status !== 'done') && (
+                        <div className="flex items-center gap-3 my-3 px-2">
+                          <div className="flex-1 h-px" style={{ background: '#E5E7EB' }} />
+                          <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">已完成</span>
+                          <div className="flex-1 h-px" style={{ background: '#E5E7EB' }} />
+                        </div>
+                      )}
+
+                      {/* Done */}
+                      {filteredTasks.filter(t => t.status === 'done')
+                        .map(task => (
+                          <TaskRow key={task.id} task={task} showTime
+                            isDragging={false} isDragOver={false}
+                            {...taskRowProps} />
+                        ))
+                      }
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  {groupByDate(filteredTasks).map(([date, dateTasks]) => (
+                    <div key={date}>
+                      <div className="sticky top-0 px-5 py-2 z-10"
+                        style={{ background: 'rgba(255,255,255,0.75)', backdropFilter: 'blur(8px)' }}>
+                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">{formatDisplayDate(date)}</span>
+                      </div>
+                      <div className="px-4">
+                        {dateTasks.map(task => (
+                          <div key={task.id} className="relative">
+                            {dragOverTaskId === task.id && draggedTaskId !== task.id && (
+                              <div className="h-0.5 rounded-full mx-2 mb-1"
+                                style={{ background: '#3B82F6', boxShadow: '0 0 6px rgba(59,130,246,0.6)' }} />
+                            )}
+                            <TaskRow task={task} showTime
+                              isDragging={draggedTaskId === task.id}
+                              isDragOver={false}
+                              {...taskRowProps} />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {filteredTasks.length === 0 && !showAddForm && (
+                    <div className="flex flex-col items-center justify-center py-16 gap-3">
+                      <span className="text-5xl">📭</span>
+                      <p className="text-[14px] font-semibold text-gray-600">暂无任务</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
