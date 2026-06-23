@@ -1,0 +1,35 @@
+schedule:
+  cron: "0 8 * * *"      # 每天早上 8 点推送
+  run_on_start: true      # 启动时立即执行一次
+
+connectors:
+  google_drive:
+    enabled: false
+    credentials_file: "secrets/google_credentials.json"
+    root_folder_id: "YOUR_FOLDER_ID"
+
+  baidu_pan:
+    enabled: false
+    access_token: "YOUR_BAIDU_ACCESS_TOKEN"
+    root_path: "/课程"
+
+notifiers:
+  dingtalk:
+    enabled: false
+    webhook: "https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN"
+    secret: "YOUR_DINGTALK_SECRET"
+
+  wechat:
+    enabled: false
+    webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
+
+  email:
+    enabled: false
+    smtp_host: "smtp.gmail.com"
+    smtp_port: 587
+    use_tls: true
+    sender: "your@email.com"
+    username: "your@email.com"
+    password: "YOUR_EMAIL_PASSWORD"
+    recipients:
+      - "recipient@email.com"
